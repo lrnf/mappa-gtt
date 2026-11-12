@@ -1,0 +1,21 @@
+{
+  "1234": [
+    {
+      "linea": "3",
+      "destinazione": "Corso Tortona",
+      "orario": "In arrivo"
+    },
+    {
+      "linea": "15",
+      "destinazione": "Sassi",
+      "orario": "4 min"
+    }
+  ],
+  "5678": [
+    {
+      "linea": "68",
+      "destinazione": "Via Frejus",
+      "orario": "2 min"
+    }
+  ]
+}

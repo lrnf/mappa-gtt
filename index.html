@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <!-- Meta viewport ottimizzato per dispositivi mobili -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mappa Trasporti Torino</title>
+    
+    <!-- Carichiamo lo stile grafico di Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        html, body, #map {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Basemap minimale in scala di grigi */
+        .leaflet-tile-pane {
+            filter: grayscale(100%) brightness(108%) contrast(85%);
+        }
+
+        /* Stile mobile-friendly per la legenda */
+        .leaflet-control-layers {
+            background: rgba(255, 255, 255, 0.95) !important;
+            backdrop-filter: blur(5px);
+            border-radius: 12px !important;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2) !important;
+            padding: 10px 14px;
+            font-family: sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* Stile del pulsante Reset personalizzato */
+        .reset-button {
+            background-color: #fff;
+            width: 36px;
+            height: 36px;
+            line-height: 36px;
+            text-align: center;
+            text-decoration: none;
+            color: #333;
+            font-weight: bold;
+            font-size: 18px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            display: block;
+        }
+        .reset-button:hover {
+            background-color: #f4f4f4;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // 1. Inizializziamo la mappa centrata su Torino
+        var map = L.map('map', {
+            zoomControl: true,
+            tap: true
+        }).setView([45.0703, 7.6869], 13);
+
+        // Creiamo piani dedicati (panes)
+        map.createPane('paneLinee');
+        map.getPane('paneLinee').style.zIndex = 400; 
+
+        map.createPane('paneFermate');
+        map.getPane('paneFermate').style.zIndex = 650; 
+
+        // 2. Sfondo OpenStreetMap pulito via CSS
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        var stopsLayer;
+        var lineaSelezionataAttiva = null;
+
+        // Variabili globali per i layer delle linee (per gestirli correttamente)
+        var metroLayer, tramLayer, funicolareLayer, busUrbLayer, busSubLayer;
+
+        // 3. Caricamento linee e suddivisione in layer tematici
+        fetch('linee.geojson')
+            .then(response => response.json())
+            .then(data => {
+                
+                function createCategoryLayer(filterFn) {
+                    return L.geoJSON(data, {
+                        pane: 'paneLinee',
+                        filter: filterFn,
+                        style: function(feature) {
+                            var props = feature.properties || {};
+                            var rType = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
+                            var agencyId = (props.routes_agency_id || props.agency_id || props.route_id || '').toString();
+                            var shortName = (props.routes_route_short_name || '').toString();
+
+                            var col = '#3388ff';
+
+                            if (rType == 1) {
+                                col = '#E53935'; // Metro: Rosso
+                            } else if (rType == 0) {
+                                col = '#2E7D32'; // Tram: Verde
+                            } else if (rType == 7) {
+                                col = '#6D4C41'; // Funicolare: Marrone
+                            } else if (rType == 3) {
+                                if (agencyId.includes('E') || shortName.includes('E') || agencyId === 'E') {
+                                    col = '#1565C0'; // Suburbano/Extraurbano: Blu scuro
+                                } else {
+                                    col = '#03A9F4'; // Urbano: Azzurro brillante
+                                }
+                            } else {
+                                col = props.routes_route_color || props.route_color || '#3388ff';
+                                if (!col.startsWith('#')) col = '#' + col;
+                            }
+                            
+                            return {
+                                color: col,
+                                weight: 3,         
+                                opacity: 0.75,     
+                                lineCap: 'round',  
+                                lineJoin: 'round'  
+                            };
+                        },
+                        onEachFeature: function(feature, layer) {
+                            var nomeLinea = feature.properties.routes_route_short_name || '';
+                            var descLinea = feature.properties.routes_route_long_name || '';
+                            layer.bindPopup(`<b>Linea ${nomeLinea}</b><br>${descLinea}`);
+
+                            // Interattività al click/touch sulla linea
+                            layer.on('click', function(e) {
+                                L.DomEvent.stopPropagation(e);
+                                selezionaLinea(nomeLinea);
+                            });
+                        }
+                    });
+                }
+
+                metroLayer = createCategoryLayer(f => {
+                    var t = f.properties.routes_route_type !== undefined ? f.properties.routes_route_type : f.properties.route_type;
+                    return t == 1;
+                });
+
+                tramLayer = createCategoryLayer(f => {
+                    var t = f.properties.routes_route_type !== undefined ? f.properties.routes_route_type : f.properties.route_type;
+                    return t == 0;
+                });
+
+                funicolareLayer = createCategoryLayer(f => {
+                    var t = f.properties.routes_route_type !== undefined ? f.properties.routes_route_type : f.properties.route_type;
+                    return t == 7;
+                });
+
+                busUrbLayer = createCategoryLayer(f => {
+                    var props = f.properties || {};
+                    var t = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
+                    var agencyId = (props.routes_agency_id || props.agency_id || props.route_id || '').toString();
+                    var shortName = (props.routes_route_short_name || '').toString();
+                    return t == 3 && !(agencyId.includes('E') || shortName.includes('E') || agencyId === 'E');
+                });
+
+                busSubLayer = createCategoryLayer(f => {
+                    var props = f.properties || {};
+                    var t = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
+                    var agencyId = (props.routes_agency_id || props.agency_id || props.route_id || '').toString();
+                    var shortName = (props.routes_route_short_name || '').toString();
+                    return t == 3 && (agencyId.includes('E') || shortName.includes('E') || agencyId === 'E');
+                });
+
+                metroLayer.addTo(map);
+                tramLayer.addTo(map);
+                funicolareLayer.addTo(map);
+                busUrbLayer.addTo(map);
+                busSubLayer.addTo(map);
+
+                var overlays = {
+                    "🚇 Metropolitana": metroLayer,
+                    "🚊 Tram": tramLayer,
+                    "🚌 Bus Urbani": busUrbLayer,
+                    "🚐 Bus Suburbani": busSubLayer,
+                    "🚞 Funicolare": funicolareLayer
+                };
+
+                L.control.layers(null, overlays, { collapsed: true }).addTo(map);
+            });
+
+        // 4. Carichiamo il file fermate.geojson aggiornato
+        fetch('fermate.geojson')
+            .then(response => response.json())
+            .then(data => {
+                stopsLayer = L.geoJSON(data, {
+                    pane: 'paneFermate',
+                    pointToLayer: function(feature, latlng) {
+                        return L.circleMarker(latlng, {
+                            radius: 6,                 
+                            fillColor: "#ffffff",      
+                            color: "#000000",          
+                            weight: 1.5,               
+                            fillOpacity: 1
+                        });
+                    },
+                    onEachFeature: function(feature, layer) {
+                        var nomeFermata = feature.properties.stop_name || 'Fermata';
+                        var codicePalina = feature.properties.stop_code || '';
+                        var lineePassanti = feature.properties.linee || '';
+                        
+                        var htmlBadgeLinee = '';
+                        if (lineePassanti) {
+                            var arrayLinee = lineePassanti.toString().split(',');
+                            arrayLinee.forEach(function(numLinea) {
+                                numLinea = numLinea.trim();
+                                if(numLinea) {
+                                    // Usiamo una classe e un attributo data-linea anziché onclick diretto
+                                    htmlBadgeLinee += `<button class="line-badge-btn" data-linea="${numLinea}" style="margin: 2px; padding: 4px 8px; background: #2E7D32; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px;">${numLinea}</button>`;
+                                }
+                            });
+                        }
+
+                        var urlLive = `https://www.gtt.to.it/cms/percorari/arrivi?option=com_gtt&view=palina&realtime=true&palina=${codicePalina}&bacino=&ora=&data=`;
+                        
+                        var popupContent = `
+                            <div style="min-width: 200px; text-align: center; padding: 4px;">
+                                <b style="font-size: 14px;">${nomeFermata}</b><br>
+                                <span style="font-size: 11px; color: #666;">Palina: ${codicePalina}</span><br>
+                                
+                                ${htmlBadgeLinee ? `
+                                <div style="margin: 8px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee; padding: 6px 0;">
+                                    <div style="font-size: 11px; color: #444; margin-bottom: 4px;">Linee in transito:</div>
+                                    ${htmlBadgeLinee}
+                                </div>` : ''}
+
+                                <!-- Contenitore per la futura tabella live o link di fallback -->
+                                <div id="live-container-${codicePalina}" style="margin-top: 6px;">
+                                    <a href="${urlLive}" target="_blank" style="display: block; padding: 8px 12px; background: #005A9C; color: #fff; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: bold;">
+                                        🚍 Vedi orari live su GTT
+                                    </a>
+                                </div>
+                            </div>
+                        `;
+                        layer.bindPopup(popupContent);
+                    }
+                });
+
+                if (map.getZoom() >= 14) {
+                    stopsLayer.addTo(map);
+                }
+            });
+
+        // Ascoltatore globale per i badge delle linee e per il caricamento live on-demand
+        map.on('popupopen', function(e) {
+            var container = e.popup.getElement();
+            if (!container) return;
+
+            // 1. Gestione click sui badge delle linee
+            var buttons = container.querySelectorAll('.line-badge-btn');
+            buttons.forEach(function(btn) {
+                L.DomEvent.disableClickPropagation(btn); // Evita che il click muova la mappa
+                L.DomEvent.on(btn, 'click', function(ev) {
+                    L.DomEvent.stopPropagation(ev);
+                    var linea = btn.getAttribute('data-linea');
+                    selezionaLinea(linea);
+                });
+            });
+
+            // 2. GESTIONE LIVE ON-DEMAND REALE
+            var marker = e.popup._source;
+            if (marker && marker.feature) {
+                var codicePalina = marker.feature.properties.stop_code;
+                var liveDiv = container.querySelector('#live-container-' + codicePalina);
+                
+                if (liveDiv) {
+                    liveDiv.innerHTML = `<div style="padding: 8px; font-size: 11px; color: #666;">⏳ Caricamento orari live...</div>`;
+                    
+                    // Legge il file live.json generato automaticamente da GitHub Actions
+                    fetch('live.json')
+                        .then(response => {
+                            if (!response.ok) throw new Error("File live non disponibile");
+                            return response.json();
+                        })
+                        .then(data => {
+                            // Cerca gli arrivi associati a questo specifico codice palina
+                            var arriviPalina = data[codicePalina] || [];
+                            
+                            if (arriviPalina.length === 0) {
+                                liveDiv.innerHTML = `<div style="padding: 6px; font-size: 11px; color: #888;">Nessun mezzo in transito al momento.</div>`;
+                                return;
+                            }
+                            
+                            // Costruisce la tabellina HTML dinamica con i dati reali
+                            var htmlTabella = `
+                                <div style="margin-top: 4px; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; background: #fff;">
+                                    <div style="background: #005A9C; color: #fff; padding: 4px 8px; font-size: 11px; font-weight: bold; text-align: left;">
+                                        ⏱ Arrivi in tempo reale (Palina ${codicePalina})
+                                    </div>
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 11px; text-align: left;">
+                                        <thead>
+                                            <tr style="border-bottom: 1px solid #eee; background: #f9f9f9; color: #333;">
+                                                <th style="padding: 4px 6px;">Linea</th>
+                                                <th style="padding: 4px 6px;">Destinazione</th>
+                                                <th style="padding: 4px 6px; text-align: right;">Orario</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                            `;
+                            
+                            arriviPalina.forEach(function(item) {
+                                htmlTabella += `
+                                    <tr style="border-bottom: 1px solid #f0f0f0;">
+                                        <td style="padding: 4px 6px; font-weight: bold; color: #2E7D32;">${item.linea}</td>
+                                        <td style="padding: 4px 6px;">${item.destinazione}</td>
+                                        <td style="padding: 4px 6px; text-align: right; font-weight: bold;">${item.orario}</td>
+                                    </tr>
+                                `;
+                            });
+                            
+                            htmlTabella += `</tbody></table></div>`;
+                            liveDiv.innerHTML = htmlTabella;
+                        })
+                        .catch(error => {
+                            liveDiv.innerHTML = `<span style="color: #d32f2f; font-size: 11px;">Impossibile caricare i dati live.</span>`;
+                        });
+                }
+            }
+        });
+
+        // Funzione centrale per selezionare/isolare una linea e le sue fermate
+        function selezionaLinea(nomeLinea) {
+            lineaSelezionataAttiva = nomeLinea.toString();
+            map.closePopup();
+
+            // 1. Spegne/attenua tutte le linee e illumina solo quella selezionata in tutti i layer
+            var lineLayers = [metroLayer, tramLayer, funicolareLayer, busUrbLayer, busSubLayer];
+            lineLayers.forEach(function(catLayer) {
+                if (catLayer) {
+                    catLayer.eachLayer(function(l) {
+                        var props = l.feature.properties || {};
+                        var shortName = (props.routes_route_short_name || '').toString();
+                        
+                        if (shortName === lineaSelezionataAttiva) {
+                            l.setStyle({ opacity: 1, weight: 5 });
+                        } else {
+                            l.setStyle({ opacity: 0.15, weight: 1.5 });
+                        }
+                    });
+                }
+            });
+
+            // 2. Filtra le fermate: mostra solo quelle servite da questa linea (se zoom >= 14)
+            if (stopsLayer && map.getZoom() >= 14) {
+                stopsLayer.eachLayer(function(marker) {
+                    var lineeProps = (marker.feature.properties.linee || '').toString();
+                    var arrayLinee = lineeProps.split(',').map(s => s.trim());
+                    
+                    if (arrayLinee.includes(lineaSelezionataAttiva)) {
+                        if (!map.hasLayer(marker)) map.addLayer(marker);
+                    } else {
+                        if (map.hasLayer(marker)) map.removeLayer(marker);
+                    }
+                });
+            }
+        }
+
+        // Funzione di reset globale (ripristina tutto)
+        function resettaMappa() {
+            lineaSelezionataAttiva = null;
+
+            // Riporta tutte le linee allo stile originale
+            var lineLayers = [metroLayer, tramLayer, funicolareLayer, busUrbLayer, busSubLayer];
+            lineLayers.forEach(function(catLayer) {
+                if (catLayer) {
+                    catLayer.eachLayer(function(l) {
+                        l.setStyle({ opacity: 0.75, weight: 3 });
+                    });
+                }
+            });
+
+            // Ripristina la visibilità di tutte le fermate (se a zoom corretto)
+            if (stopsLayer) {
+                if (map.getZoom() >= 14) {
+                    stopsLayer.eachLayer(function(marker) {
+                        if (!map.hasLayer(marker)) map.addLayer(marker);
+                    });
+                } else {
+                    if (map.hasLayer(stopsLayer)) map.removeLayer(stopsLayer);
+                }
+            }
+        }
+
+        // Controllo zoom per le fermate
+        map.on('zoomend', function() {
+            if (!stopsLayer) return;
+            var currentZoom = map.getZoom();
+            
+            if (currentZoom >= 14) {
+                if (!map.hasLayer(stopsLayer)) {
+                    if (lineaSelezionataAttiva) {
+                        stopsLayer.eachLayer(function(marker) {
+                            var lineeProps = (marker.feature.properties.linee || '').toString();
+                            var arrayLinee = lineeProps.split(',').map(s => s.trim());
+                            if (arrayLinee.includes(lineaSelezionataAttiva)) {
+                                marker.addTo(map);
+                            }
+                        });
+                    } else {
+                        map.addLayer(stopsLayer);
+                    }
+                }
+            } else {
+                if (map.hasLayer(stopsLayer)) map.removeLayer(stopsLayer);
+                stopsLayer.eachLayer(function(marker) {
+                    if (map.hasLayer(marker)) map.removeLayer(marker);
+                });
+            }
+        });
+
+        // 5. AGGIUNTA DEL PULSANTE RESET SULLA MAPPA
+        var ResetControl = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function (map) {
+                var container = L.DomUtil.create('div', 'leaflet-bar');
+                container.innerHTML = '<a class="reset-button" href="#" title="Ripristina visualizzazione">⟲</a>';
+                container.onclick = function(e) {
+                    e.preventDefault();
+                    resettaMappa();
+                };
+                return container;
+            }
+        });
+        map.addControl(new ResetControl());
+
+        // Reset anche cliccando sulla mappa vuota
+        map.on('click', function(e) {
+            resettaMappa();
+        });
+    </script>
+</body>
+</html>
