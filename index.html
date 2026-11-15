@@ -11,15 +11,16 @@
     
     <style>
         /* Spostamento del selettore layer in basso a destra SOLO su mobile */
+        /* Spostamento del selettore dei layer in basso a destra SOLO su mobile */
         @media (max-width: 768px) {
-            .leaflet-top.leaflet-right {
-                top: auto !important;
+            .leaflet-control-layers {
+                position: fixed !important;
                 bottom: 20px !important;
-                right: 10px !important;
-            }
-            .leaflet-right .leaflet-control {
-                float: right;
-                clear: both;
+                right: 15px !important;
+                top: auto !important;
+                left: auto !important;
+                margin: 0 !important;
+                z-index: 1000 !important;
             }
         }
 
