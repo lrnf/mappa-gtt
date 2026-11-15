@@ -23,6 +23,68 @@
             filter: grayscale(100%) brightness(108%) contrast(85%);
         }
 
+        /* Barra di ricerca in alto */
+        .search-container {
+            position: absolute;
+            top: 10px;
+            left: 55px; /* Lascia spazio ai controlli di zoom di Leaflet */
+            right: 15px;
+            max-width: 380px;
+            z-index: 1000;
+            font-family: sans-serif;
+        }
+        .search-input {
+            width: 100%;
+            padding: 10px 14px;
+            font-size: 14px;
+            border: none;
+            border-radius: 20px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(5px);
+            outline: none;
+            box-sizing: border-box;
+        }
+        .search-input:focus {
+            background: #fff;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+        }
+        .search-results {
+            position: absolute;
+            top: 48px;
+            left: 0;
+            right: 0;
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(5px);
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            max-height: 260px;
+            overflow-y: auto;
+            display: none;
+            z-index: 1001;
+        }
+        .search-item {
+            padding: 10px 14px;
+            font-size: 13px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .search-item:hover, .search-item:active {
+            background-color: #f1f5f9;
+        }
+        .search-item-badge {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+            color: #fff;
+            flex-shrink: 0;
+            margin-left: 8px;
+        }
+
         /* Stile mobile-friendly per la legenda */
         .leaflet-control-layers {
             background: rgba(255, 255, 255, 0.95) !important;
@@ -53,9 +115,44 @@
         .reset-button:hover {
             background-color: #f4f4f4;
         }
+
+        /* Banner indicatore Linea Attiva in alto a destra */
+        .active-line-banner {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(5px);
+            padding: 8px 14px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            font-family: sans-serif;
+            font-size: 13px;
+            font-weight: bold;
+            display: none; /* Nascosto di default */
+            align-items: center;
+            gap: 10px;
+            border-left: 5px solid #2E7D32;
+        }
+        .active-line-banner button {
+            background: none;
+            border: none;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #666;
+            padding: 0;
+            line-height: 1;
+        }
+        .active-line-banner button:hover {
+            color: #d32f2f;
+        }
     </style>
 </head>
 <body>
+
+    <!-- BARRA DI RICERCA INTELLIGENTE -->
+    <div class="search-container">
+        <input type="text" id="search-input" class="search-input" placeholder="🔍 Cerca fermata, linea, capolinea..." autocomplete="off">
+        <div id="search-results" class="search-results"></div>
+    </div>
 
     <div id="map"></div>
 
@@ -84,13 +181,46 @@
         var stopsLayer;
         var lineaSelezionataAttiva = null;
 
-        // Variabili globali per i layer delle linee (per gestirli correttamente)
+        // Indici globali per la ricerca rapida
+        var searchIndexStops = [];
+        var searchIndexLines = [];
+
+        // Variabili globali per i layer delle linee
         var metroLayer, tramLayer, funicolareLayer, busUrbLayer, busSubLayer;
+
+        // --- FUNZIONE DIRETTA E FORZATA PER I COLORI ---
+        function getLineaColore(numLinea, rType, agencyId) {
+            var l = (numLinea || '').toString().trim().toLowerCase();
+            rType = parseInt(rType);
+            agencyId = (agencyId || '').toString().toUpperCase();
+
+            // 1. Metropolitana (Rosso: #E53935) -> Include '1' e 'm1'
+            if (l === '1' || l === 'm1' || rType === 1) return '#E53935';
+            
+            // 2. Tram (Verde: #2E7D32) -> Inclusi esplicitamente 16cs, 16cd, 7, 3, 4, 9, 10, 13, 15, 16
+            var tramList = ['3', '4', '7', '9', '10', '13', '15', '16', '16 cs', '16 cd', '16/'];
+            if (tramList.includes(l) || rType === 0) {
+                return '#2E7D32';
+            }
+            
+            // 3. Funicolare (Marrone: #6D4C41)
+            if (l.includes('sassi') || rType === 7) return '#6D4C41';
+            
+            // 4. Suburbani / Extraurbani (Blu scuro: #1565C0)
+            if (agencyId.includes('E') || l.includes('e') || (!isNaN(parseInt(l)) && parseInt(l) >= 100)) {
+                return '#1565C0';
+            }
+            
+            // 5. Bus Urbani standard (Azzurro chiaro: #03A9F4 - Default)
+            return '#03A9F4';
+        }
 
         // 3. Caricamento linee e suddivisione in layer tematici
         fetch('linee.geojson')
             .then(response => response.json())
             .then(data => {
+                // Indicizziamo le linee uniche per la ricerca
+                var lineMap = new Map();
                 
                 function createCategoryLayer(filterFn) {
                     return L.geoJSON(data, {
@@ -99,32 +229,24 @@
                         style: function(feature) {
                             var props = feature.properties || {};
                             var rType = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
-                            var agencyId = (props.routes_agency_id || props.agency_id || props.route_id || '').toString();
-                            var shortName = (props.routes_route_short_name || '').toString();
+                            var agencyId = props.routes_agency_id || props.agency_id || '';
+                            var shortName = props.routes_route_short_name || '';
 
-                            var col = '#3388ff';
-
-                            if (rType == 1) {
-                                col = '#E53935'; // Metro: Rosso
-                            } else if (rType == 0) {
-                                col = '#2E7D32'; // Tram: Verde
-                            } else if (rType == 7) {
-                                col = '#6D4C41'; // Funicolare: Marrone
-                            } else if (rType == 3) {
-                                if (agencyId.includes('E') || shortName.includes('E') || agencyId === 'E') {
-                                    col = '#1565C0'; // Suburbano/Extraurbano: Blu scuro
-                                } else {
-                                    col = '#03A9F4'; // Urbano: Azzurro brillante
-                                }
-                            } else {
-                                col = props.routes_route_color || props.route_color || '#3388ff';
-                                if (!col.startsWith('#')) col = '#' + col;
-                            }
+                            var col = getLineaColore(shortName, rType, agencyId);
                             
+                            // Popoliamo l'indice di ricerca linee
+                            if (shortName && !lineMap.has(shortName)) {
+                                lineMap.set(shortName, {
+                                    name: shortName,
+                                    desc: props.routes_route_long_name || '',
+                                    color: col
+                                });
+                            }
+
                             return {
                                 color: col,
-                                weight: 3,         
-                                opacity: 0.75,     
+                                weight: 3,        
+                                opacity: 0.75,    
                                 lineCap: 'round',  
                                 lineJoin: 'round'  
                             };
@@ -134,7 +256,6 @@
                             var descLinea = feature.properties.routes_route_long_name || '';
                             layer.bindPopup(`<b>Linea ${nomeLinea}</b><br>${descLinea}`);
 
-                            // Interattività al click/touch sulla linea
                             layer.on('click', function(e) {
                                 L.DomEvent.stopPropagation(e);
                                 selezionaLinea(nomeLinea);
@@ -144,34 +265,39 @@
                 }
 
                 metroLayer = createCategoryLayer(f => {
-                    var t = f.properties.routes_route_type !== undefined ? f.properties.routes_route_type : f.properties.route_type;
-                    return t == 1;
+                    var props = f.properties || {};
+                    var t = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
+                    var name = (props.routes_route_short_name || '').toString().toLowerCase();
+                    return parseInt(t) === 1 || name === 'm1';
                 });
 
                 tramLayer = createCategoryLayer(f => {
-                    var t = f.properties.routes_route_type !== undefined ? f.properties.routes_route_type : f.properties.route_type;
-                    return t == 0;
+                    var props = f.properties || {};
+                    var t = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
+                    var name = (props.routes_route_short_name || '').toString().toLowerCase();
+                    return parseInt(t) === 0 || ['3', '4', '7', '9', '10', '13', '15', '16', '16cs', '16cd'].includes(name);
                 });
 
                 funicolareLayer = createCategoryLayer(f => {
-                    var t = f.properties.routes_route_type !== undefined ? f.properties.routes_route_type : f.properties.route_type;
-                    return t == 7;
+                    var t = f.properties.routes_route_type !== undefined ? f.properties.routes_route_type : props.route_type;
+                    return parseInt(t) === 7;
                 });
 
                 busUrbLayer = createCategoryLayer(f => {
                     var props = f.properties || {};
                     var t = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
-                    var agencyId = (props.routes_agency_id || props.agency_id || props.route_id || '').toString();
-                    var shortName = (props.routes_route_short_name || '').toString();
-                    return t == 3 && !(agencyId.includes('E') || shortName.includes('E') || agencyId === 'E');
+                    var agencyId = (props.routes_agency_id || props.agency_id || '').toString().toUpperCase();
+                    var name = (props.routes_route_short_name || '').toString().toLowerCase();
+                    var isTram = parseInt(t) === 0 || ['3', '4', '7', '9', '10', '13', '15', '16', '16cs', '16cd'].includes(name);
+                    var isMetro = parseInt(t) === 1 || name === 'm1';
+                    return !isTram && !isMetro && parseInt(t) === 3 && !agencyId.includes('E');
                 });
 
                 busSubLayer = createCategoryLayer(f => {
                     var props = f.properties || {};
-                    var t = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
-                    var agencyId = (props.routes_agency_id || props.agency_id || props.route_id || '').toString();
-                    var shortName = (props.routes_route_short_name || '').toString();
-                    return t == 3 && (agencyId.includes('E') || shortName.includes('E') || agencyId === 'E');
+                    var agencyId = (props.routes_agency_id || props.agency_id || '').toString().toUpperCase();
+                    var name = (props.routes_route_short_name || '').toString().toLowerCase();
+                    return agencyId.includes('E') || (!isNaN(parseInt(name)) && parseInt(name) >= 100);
                 });
 
                 metroLayer.addTo(map);
@@ -179,6 +305,9 @@
                 funicolareLayer.addTo(map);
                 busUrbLayer.addTo(map);
                 busSubLayer.addTo(map);
+
+                // Salviamo le linee indicizzate
+                searchIndexLines = Array.from(lineMap.values());
 
                 var overlays = {
                     "🚇 Metropolitana": metroLayer,
@@ -191,7 +320,7 @@
                 L.control.layers(null, overlays, { collapsed: true }).addTo(map);
             });
 
-        // 4. Carichiamo il file fermate.geojson aggiornato
+        // 4. Carichiamo il file fermate.geojson
         fetch('fermate.geojson')
             .then(response => response.json())
             .then(data => {
@@ -199,10 +328,10 @@
                     pane: 'paneFermate',
                     pointToLayer: function(feature, latlng) {
                         return L.circleMarker(latlng, {
-                            radius: 6,                 
+                            radius: 6,                
                             fillColor: "#ffffff",      
                             color: "#000000",          
-                            weight: 1.5,               
+                            weight: 1.5,              
                             fillOpacity: 1
                         });
                     },
@@ -211,14 +340,22 @@
                         var codicePalina = feature.properties.stop_code || '';
                         var lineePassanti = feature.properties.linee || '';
                         
+                        // Salviamo nell'indice di ricerca fermate
+                        searchIndexStops.push({
+                            name: nomeFermata,
+                            code: codicePalina,
+                            latlng: layer.getLatLng(),
+                            layer: layer
+                        });
+
                         var htmlBadgeLinee = '';
                         if (lineePassanti) {
                             var arrayLinee = lineePassanti.toString().split(',');
                             arrayLinee.forEach(function(numLinea) {
                                 numLinea = numLinea.trim();
                                 if(numLinea) {
-                                    // Usiamo una classe e un attributo data-linea anziché onclick diretto
-                                    htmlBadgeLinee += `<button class="line-badge-btn" data-linea="${numLinea}" style="margin: 2px; padding: 4px 8px; background: #2E7D32; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px;">${numLinea}</button>`;
+                                    var colBadge = getLineaColore(numLinea);
+                                    htmlBadgeLinee += `<button class="line-badge-btn" data-linea="${numLinea}" style="margin: 2px; padding: 4px 8px; background: ${colBadge}; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">${numLinea}</button>`;
                                 }
                             });
                         }
@@ -226,20 +363,21 @@
                         var urlLive = `https://www.gtt.to.it/cms/percorari/arrivi?option=com_gtt&view=palina&realtime=true&palina=${codicePalina}&bacino=&ora=&data=`;
                         
                         var popupContent = `
-                            <div style="min-width: 200px; text-align: center; padding: 4px;">
+                            <div style="min-width: 210px; text-align: center; padding: 4px;">
                                 <b style="font-size: 14px;">${nomeFermata}</b><br>
                                 <span style="font-size: 11px; color: #666;">Palina: ${codicePalina}</span><br>
                                 
                                 ${htmlBadgeLinee ? `
                                 <div style="margin: 8px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee; padding: 6px 0;">
                                     <div style="font-size: 11px; color: #444; margin-bottom: 4px;">Linee in transito:</div>
-                                    ${htmlBadgeLinee}
+                                    <div style="max-height: 80px; overflow-y: auto; display: flex; flex-wrap: wrap; justify-content: center; gap: 2px;">
+                                        ${htmlBadgeLinee}
+                                    </div>
                                 </div>` : ''}
 
-                                <!-- Contenitore per la futura tabella live o link di fallback -->
-                                <div id="live-container-${codicePalina}" style="margin-top: 6px;">
-                                    <a href="${urlLive}" target="_blank" style="display: block; padding: 8px 12px; background: #005A9C; color: #fff; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: bold;">
-                                        🚍 Vedi orari live su GTT
+                                <div style="margin-top: 8px;">
+                                    <a href="${urlLive}" target="_blank" style="display: block; padding: 9px 12px; background: #E53935; color: #fff; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.15);">
+                                        🔴 Orari Ufficiali GTT (Palina ${codicePalina})
                                     </a>
                                 </div>
                             </div>
@@ -253,89 +391,151 @@
                 }
             });
 
-        // Ascoltatore globale per i badge delle linee e per il caricamento live on-demand
+        // 5. LOGICA BARRA DI RICERCA INTERattiva
+        var searchInput = document.getElementById('search-input');
+        var searchResults = document.getElementById('search-results');
+
+        searchInput.addEventListener('input', function() {
+            var query = this.value.trim().toLowerCase();
+            searchResults.innerHTML = '';
+            
+            if (query.length < 2) {
+                searchResults.style.display = 'none';
+                return;
+            }
+
+            var matches = [];
+
+            // 1. Cerca tra le linee
+            searchIndexLines.forEach(function(l) {
+                if (l.name.toLowerCase().includes(query) || l.desc.toLowerCase().includes(query)) {
+                    matches.push({
+                        type: 'line',
+                        title: `Linea ${l.name}`,
+                        subtitle: l.desc,
+                        badge: l.name,
+                        color: l.color,
+                        data: l.name
+                    });
+                }
+            });
+
+            // 2. Cerca tra le fermate (massimo 10 risultati per non appesantire)
+            var stopMatches = 0;
+            searchIndexStops.forEach(function(s) {
+                if (stopMatches < 10 && (s.name.toLowerCase().includes(query) || s.code.toLowerCase().includes(query))) {
+                    matches.push({
+                        type: 'stop',
+                        title: s.name,
+                        subtitle: `Palina ${s.code}`,
+                        badge: s.code,
+                        color: '#64748b',
+                        data: s
+                    });
+                    stopMatches++;
+                }
+            });
+
+            if (matches.length === 0) {
+                searchResults.style.display = 'none';
+                return;
+            }
+
+            // Mostriamo i risultati
+            matches.slice(0, 12).forEach(function(item) {
+                var div = document.createElement('div');
+                div.className = 'search-item';
+                div.innerHTML = `
+                    <div>
+                        <div style="font-weight: bold; color: #1e293b;">${item.title}</div>
+                        <div style="font-size: 11px; color: #64748b;">${item.subtitle}</div>
+                    </div>
+                    <span class="search-item-badge" style="background: ${item.color};">${item.badge}</span>
+                `;
+
+                div.onclick = function() {
+                    searchResults.style.display = 'none';
+                    searchInput.value = '';
+
+                    if (item.type === 'line') {
+                        selezionaLinea(item.data);
+                    } else if (item.type === 'stop') {
+                        var stop = item.data;
+                        // Assicuriamoci che il layer delle fermate sia visibile
+                        if (map.getZoom() < 14) {
+                            map.setView(stop.latlng, 16);
+                        } else {
+                            map.panTo(stop.latlng);
+                        }
+                        // Apriamo il popup della fermata
+                        setTimeout(function() {
+                            if (!map.hasLayer(stopsLayer)) {
+                                stopsLayer.addTo(map);
+                            }
+                            stop.layer.openPopup();
+                        }, 200);
+                    }
+                };
+
+                searchResults.appendChild(div);
+            });
+
+            searchResults.style.display = 'block';
+        });
+
+        // Chiudi i risultati di ricerca se si clicca fuori
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.search-container')) {
+                searchResults.style.display = 'none';
+            }
+        });
+
+        // Ascoltatore globale per i badge delle linee
         map.on('popupopen', function(e) {
             var container = e.popup.getElement();
             if (!container) return;
 
-            // 1. Gestione click sui badge delle linee
             var buttons = container.querySelectorAll('.line-badge-btn');
             buttons.forEach(function(btn) {
-                L.DomEvent.disableClickPropagation(btn); // Evita che il click muova la mappa
+                L.DomEvent.disableClickPropagation(btn);
                 L.DomEvent.on(btn, 'click', function(ev) {
                     L.DomEvent.stopPropagation(ev);
                     var linea = btn.getAttribute('data-linea');
                     selezionaLinea(linea);
                 });
             });
-
-            // 2. GESTIONE LIVE ON-DEMAND REALE
-            var marker = e.popup._source;
-            if (marker && marker.feature) {
-                var codicePalina = marker.feature.properties.stop_code;
-                var liveDiv = container.querySelector('#live-container-' + codicePalina);
-                
-                if (liveDiv) {
-                    liveDiv.innerHTML = `<div style="padding: 8px; font-size: 11px; color: #666;">⏳ Caricamento orari live...</div>`;
-                    
-                    // Legge il file live.json generato automaticamente da GitHub Actions
-                    fetch('live.json')
-                        .then(response => {
-                            if (!response.ok) throw new Error("File live non disponibile");
-                            return response.json();
-                        })
-                        .then(data => {
-                            // Cerca gli arrivi associati a questo specifico codice palina
-                            var arriviPalina = data[codicePalina] || [];
-                            
-                            if (arriviPalina.length === 0) {
-                                liveDiv.innerHTML = `<div style="padding: 6px; font-size: 11px; color: #888;">Nessun mezzo in transito al momento.</div>`;
-                                return;
-                            }
-                            
-                            // Costruisce la tabellina HTML dinamica con i dati reali
-                            var htmlTabella = `
-                                <div style="margin-top: 4px; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; background: #fff;">
-                                    <div style="background: #005A9C; color: #fff; padding: 4px 8px; font-size: 11px; font-weight: bold; text-align: left;">
-                                        ⏱ Arrivi in tempo reale (Palina ${codicePalina})
-                                    </div>
-                                    <table style="width: 100%; border-collapse: collapse; font-size: 11px; text-align: left;">
-                                        <thead>
-                                            <tr style="border-bottom: 1px solid #eee; background: #f9f9f9; color: #333;">
-                                                <th style="padding: 4px 6px;">Linea</th>
-                                                <th style="padding: 4px 6px;">Destinazione</th>
-                                                <th style="padding: 4px 6px; text-align: right;">Orario</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                            `;
-                            
-                            arriviPalina.forEach(function(item) {
-                                htmlTabella += `
-                                    <tr style="border-bottom: 1px solid #f0f0f0;">
-                                        <td style="padding: 4px 6px; font-weight: bold; color: #2E7D32;">${item.linea}</td>
-                                        <td style="padding: 4px 6px;">${item.destinazione}</td>
-                                        <td style="padding: 4px 6px; text-align: right; font-weight: bold;">${item.orario}</td>
-                                    </tr>
-                                `;
-                            });
-                            
-                            htmlTabella += `</tbody></table></div>`;
-                            liveDiv.innerHTML = htmlTabella;
-                        })
-                        .catch(error => {
-                            liveDiv.innerHTML = `<span style="color: #d32f2f; font-size: 11px;">Impossibile caricare i dati live.</span>`;
-                        });
-                }
-            }
         });
 
-        // Funzione centrale per selezionare/isolare una linea e le sue fermate
+        // 6. BANNER DELLA LINEA SELEZIONATA
+        var ActiveLineControl = L.Control.extend({
+            options: { position: 'topright' },
+            onAdd: function (map) {
+                var container = L.DomUtil.create('div', 'active-line-banner');
+                container.id = 'active-line-banner-div';
+                container.innerHTML = `
+                    <span id="active-line-text">Linea X</span>
+                    <button onclick="resettaMappa()" title="Chiudi selezione">✕</button>
+                `;
+                L.DomEvent.disableClickPropagation(container);
+                return container;
+            }
+        });
+        map.addControl(new ActiveLineControl());
+
         function selezionaLinea(nomeLinea) {
             lineaSelezionataAttiva = nomeLinea.toString();
             map.closePopup();
 
-            // 1. Spegne/attenua tutte le linee e illumina solo quella selezionata in tutti i layer
+            var banner = document.getElementById('active-line-banner-div');
+            var textSpan = document.getElementById('active-line-text');
+            if (banner && textSpan) {
+                var colB = getLineaColore(nomeLinea);
+
+                textSpan.innerHTML = `Linea ${nomeLinea} selezionata`;
+                banner.style.borderLeftColor = colB;
+                banner.style.display = 'flex';
+            }
+
             var lineLayers = [metroLayer, tramLayer, funicolareLayer, busUrbLayer, busSubLayer];
             lineLayers.forEach(function(catLayer) {
                 if (catLayer) {
@@ -352,7 +552,6 @@
                 }
             });
 
-            // 2. Filtra le fermate: mostra solo quelle servite da questa linea (se zoom >= 14)
             if (stopsLayer && map.getZoom() >= 14) {
                 stopsLayer.eachLayer(function(marker) {
                     var lineeProps = (marker.feature.properties.linee || '').toString();
@@ -367,11 +566,14 @@
             }
         }
 
-        // Funzione di reset globale (ripristina tutto)
         function resettaMappa() {
             lineaSelezionataAttiva = null;
 
-            // Riporta tutte le linee allo stile originale
+            var banner = document.getElementById('active-line-banner-div');
+            if (banner) {
+                banner.style.display = 'none';
+            }
+
             var lineLayers = [metroLayer, tramLayer, funicolareLayer, busUrbLayer, busSubLayer];
             lineLayers.forEach(function(catLayer) {
                 if (catLayer) {
@@ -381,7 +583,6 @@
                 }
             });
 
-            // Ripristina la visibilità di tutte le fermate (se a zoom corretto)
             if (stopsLayer) {
                 if (map.getZoom() >= 14) {
                     stopsLayer.eachLayer(function(marker) {
@@ -393,7 +594,6 @@
             }
         }
 
-        // Controllo zoom per le fermate
         map.on('zoomend', function() {
             if (!stopsLayer) return;
             var currentZoom = map.getZoom();
@@ -420,7 +620,7 @@
             }
         });
 
-        // 5. AGGIUNTA DEL PULSANTE RESET SULLA MAPPA
+        // 6. PULSANTE RESET (Top Left)
         var ResetControl = L.Control.extend({
             options: { position: 'topleft' },
             onAdd: function (map) {
@@ -435,7 +635,6 @@
         });
         map.addControl(new ResetControl());
 
-        // Reset anche cliccando sulla mappa vuota
         map.on('click', function(e) {
             resettaMappa();
         });
