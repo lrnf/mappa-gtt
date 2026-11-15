@@ -2,20 +2,31 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <!-- Meta viewport ottimizzato per dispositivi mobili -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mappa Trasporti Torino</title>
     
-    <!-- Carichiamo lo stile grafico di Leaflet -->
+    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <style>
+        :root {
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --color-bg-glass: rgba(255, 255, 255, 0.95);
+            --color-text-main: #1e293b;
+            --color-text-muted: #64748b;
+            --color-border: #e2e8f0;
+            --color-primary: #0284c7;
+            --color-danger: #e11d48;
+            --shadow-subtle: 0 4px 16px rgba(0, 0, 0, 0.12);
+            --radius-main: 12px;
+        }
 
         html, body, #map {
             width: 100%;
             height: 100%;
             margin: 0;
             padding: 0;
+            font-family: var(--font-family);
             -webkit-tap-highlight-color: transparent;
         }
 
@@ -24,113 +35,161 @@
             filter: grayscale(100%) brightness(108%) contrast(85%);
         }
 
-        /* Barra di ricerca in alto */
+        /* --- BARRA DI RICERCA --- */
         .search-container {
             position: absolute;
-            top: 10px;
-            left: 55px; /* Lascia spazio ai controlli di zoom di Leaflet */
+            top: 12px;
+            left: 55px;
             right: 90px;
-            max-width: 380px;
+            max-width: 420px;
             z-index: 1000;
-            font-family: sans-serif;
         }
         .search-input {
             width: 100%;
-            padding: 10px 14px;
+            padding: 11px 16px;
             font-size: 14px;
-            border: none;
-            border-radius: 20px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(5px);
+            border: 1px solid var(--color-border);
+            border-radius: 24px;
+            box-shadow: var(--shadow-subtle);
+            background: var(--color-bg-glass);
+            backdrop-filter: blur(8px);
             outline: none;
             box-sizing: border-box;
+            color: var(--color-text-main);
+            transition: all 0.2s ease;
         }
         .search-input:focus {
             background: #fff;
-            box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+            border-color: var(--color-primary);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
         }
         .search-results {
             position: absolute;
-            top: 48px;
+            top: 52px;
             left: 0;
             right: 0;
-            background: rgba(255, 255, 255, 0.98);
-            backdrop-filter: blur(5px);
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-            max-height: 260px;
+            background: #fff;
+            border-radius: var(--radius-main);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            max-height: 280px;
             overflow-y: auto;
             display: none;
             z-index: 1001;
+            border: 1px solid var(--color-border);
         }
         .search-item {
-            padding: 10px 14px;
+            padding: 12px 16px;
             font-size: 13px;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid #f8fafc;
             cursor: pointer;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        .search-item:hover, .search-item:active {
+        .search-item:hover {
             background-color: #f1f5f9;
         }
         .search-item-badge {
             font-size: 11px;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-weight: 600;
             color: #fff;
             flex-shrink: 0;
             margin-left: 8px;
         }
 
-        /* Stile mobile-friendly per la legenda */
-        .leaflet-control-layers {
-            background: rgba(255, 255, 255, 0.95) !important;
-            backdrop-filter: blur(5px);
-            border-radius: 12px !important;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.2) !important;
-            padding: 10px 14px;
-            font-family: sans-serif;
-            font-size: 14px;
-            line-height: 1.6;
+        /* --- PANNELLO INFERIORE ORARI (BOTTOM SHEET) --- */
+        .bottom-panel {
+            position: fixed;
+            bottom: -220px;
+            left: 0;
+            right: 0;
+            height: auto;
+            background: #fff;
+            box-shadow: 0 -6px 30px rgba(0, 0, 0, 0.15);
+            border-radius: 20px 20px 0 0;
+            z-index: 3000;
+            transition: bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+            border-top: 1px solid var(--color-border);
         }
-
-        /* Stile del pulsante Reset personalizzato */
-        .reset-button {
-            background-color: #fff;
-            width: 36px;
-            height: 36px;
-            line-height: 36px;
-            text-align: center;
-            text-decoration: none;
-            color: #333;
-            font-weight: bold;
-            font-size: 18px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-            display: block;
+        .bottom-panel.open {
+            bottom: 0;
         }
-        .reset-button:hover {
-            background-color: #f4f4f4;
-        }
-
-        /* Banner indicatore Linea Attiva in alto a destra */
-        .active-line-banner {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(5px);
-            padding: 8px 14px;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            font-family: sans-serif;
-            font-size: 13px;
-            font-weight: bold;
-            display: none; /* Nascosto di default */
+        .bottom-panel-header {
+            padding: 14px 18px 10px 18px;
+            display: flex;
+            justify-content: space-between;
             align-items: center;
-            gap: 10px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .bottom-panel-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--color-text-main);
+        }
+        .bottom-panel-subtitle {
+            font-size: 12px;
+            color: var(--color-text-muted);
+            margin-top: 2px;
+        }
+        .bottom-panel-close {
+            background: #f1f5f9;
+            border: none;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            color: var(--color-text-muted);
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        .bottom-panel-close:hover {
+            background: #e2e8f0;
+            color: var(--color-text-main);
+        }
+        .bottom-panel-body {
+            padding: 16px 18px 24px 18px;
+            text-align: center;
+        }
+        .gtt-live-btn {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px 16px;
+            background: var(--color-danger);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);
+            transition: transform 0.1s ease, background 0.2s;
+        }
+        .gtt-live-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* --- BANNER LINEA ATTIVA --- */
+        .active-line-banner {
+            background: var(--color-bg-glass);
+            backdrop-filter: blur(8px);
+            padding: 10px 16px;
+            border-radius: var(--radius-main);
+            box-shadow: var(--shadow-subtle);
+            font-size: 13px;
+            font-weight: 600;
+            display: none;
+            align-items: center;
+            gap: 12px;
             border-left: 5px solid #2E7D32;
+            color: var(--color-text-main);
         }
         .active-line-banner button {
             background: none;
@@ -138,42 +197,95 @@
             font-size: 16px;
             font-weight: bold;
             cursor: pointer;
-            color: #666;
+            color: var(--color-text-muted);
             padding: 0;
             line-height: 1;
         }
         .active-line-banner button:hover {
-            color: #d32f2f;
+            color: var(--color-danger);
+        }
+
+        /* --- PULSANTE RESET E LEGENDA LAYER --- */
+        .reset-button {
+            background-color: #fff;
+            width: 36px;
+            height: 36px;
+            line-height: 36px;
+            text-align: center;
+            text-decoration: none;
+            color: var(--color-text-main);
+            font-weight: bold;
+            font-size: 18px;
+            border-radius: 8px;
+            box-shadow: var(--shadow-subtle);
+            display: block;
+            border: 1px solid var(--color-border);
+        }
+        .reset-button:hover {
+            background-color: #f8fafc;
+        }
+
+        .leaflet-control-layers {
+            background: var(--color-bg-glass) !important;
+            backdrop-filter: blur(8px);
+            border-radius: var(--radius-main) !important;
+            box-shadow: var(--shadow-subtle) !important;
+            border: 1px solid var(--color-border) !important;
+            padding: 10px 14px;
+            font-family: var(--font-family);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        /* Popup Leaflet personalizzati */
+        .leaflet-popup-content-wrapper {
+            border-radius: var(--radius-main);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            padding: 4px;
         }
     </style>
 </head>
 <body>
 
-    <!-- BARRA DI RICERCA INTELLIGENTE -->
+    <!-- BARRA DI RICERCA -->
     <div class="search-container">
         <input type="text" id="search-input" class="search-input" placeholder="🔍 Cerca fermata, linea, capolinea..." autocomplete="off">
         <div id="search-results" class="search-results"></div>
     </div>
 
+    <!-- PANNELLO INFERIORE ORARI GTT -->
+    <div id="bottom-panel" class="bottom-panel">
+        <div class="bottom-panel-header">
+            <div>
+                <div id="panel-stop-name" class="bottom-panel-title">Fermata</div>
+                <div id="panel-stop-code" class="bottom-panel-subtitle"></div>
+            </div>
+            <button class="bottom-panel-close" onclick="chiudiPannelloInferiore()" title="Chiudi">✕</button>
+        </div>
+        <div class="bottom-panel-body">
+            <a id="panel-gtt-link" href="#" target="_blank" class="gtt-live-btn">
+                🔴 Consulta orari ufficiali GTT in tempo reale
+            </a>
+        </div>
+    </div>
+
     <div id="map"></div>
 
+    <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
-        // 1. Inizializziamo la mappa centrata su Torino
         var map = L.map('map', {
             zoomControl: true,
             tap: true
         }).setView([45.0703, 7.6869], 13);
 
-        // Creiamo piani dedicati (panes)
         map.createPane('paneLinee');
         map.getPane('paneLinee').style.zIndex = 400; 
 
         map.createPane('paneFermate');
         map.getPane('paneFermate').style.zIndex = 650; 
 
-        // 2. Sfondo OpenStreetMap pulito via CSS
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; OpenStreetMap contributors'
@@ -181,46 +293,33 @@
 
         var stopsLayer;
         var lineaSelezionataAttiva = null;
-
-        // Indici globali per la ricerca rapida
         var searchIndexStops = [];
         var searchIndexLines = [];
-
-        // Variabili globali per i layer delle linee
         var metroLayer, tramLayer, funicolareLayer, busUrbLayer, busSubLayer;
 
-        // --- FUNZIONE DIRETTA E FORZATA PER I COLORI ---
         function getLineaColore(numLinea, rType, agencyId) {
             var l = (numLinea || '').toString().trim().toLowerCase();
             rType = parseInt(rType);
             agencyId = (agencyId || '').toString().toUpperCase();
 
-            // 1. Metropolitana (Rosso: #E53935) -> Include '1' e 'm1'
             if (l === '1' || l === 'm1' || rType === 1) return '#E53935';
             
-            // 2. Tram (Verde: #2E7D32) -> Inclusi esplicitamente 16cs, 16cd, 7, 3, 4, 9, 10, 13, 15, 16
             var tramList = ['3', '4', '7', '9', '10', '13', '15', '16', '16 cs', '16 cd', '16/'];
-            if (tramList.includes(l) || rType === 0) {
-                return '#2E7D32';
-            }
+            if (tramList.includes(l) || rType === 0) return '#2E7D32';
             
-            // 3. Funicolare (Marrone: #6D4C41)
             if (l.includes('sassi') || rType === 7) return '#6D4C41';
             
-            // 4. Suburbani / Extraurbani (Blu scuro: #1565C0)
             if (agencyId.includes('E') || l.includes('e') || (!isNaN(parseInt(l)) && parseInt(l) >= 100)) {
                 return '#1565C0';
             }
             
-            // 5. Bus Urbani standard (Azzurro chiaro: #03A9F4 - Default)
             return '#03A9F4';
         }
 
-        // 3. Caricamento linee e suddivisione in layer tematici
+        // Caricamento linee
         fetch('linee.geojson')
             .then(response => response.json())
             .then(data => {
-                // Indicizziamo le linee uniche per la ricerca
                 var lineMap = new Map();
                 
                 function createCategoryLayer(filterFn) {
@@ -232,10 +331,8 @@
                             var rType = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
                             var agencyId = props.routes_agency_id || props.agency_id || '';
                             var shortName = props.routes_route_short_name || '';
-
                             var col = getLineaColore(shortName, rType, agencyId);
                             
-                            // Popoliamo l'indice di ricerca linee
                             if (shortName && !lineMap.has(shortName)) {
                                 lineMap.set(shortName, {
                                     name: shortName,
@@ -244,19 +341,12 @@
                                 });
                             }
 
-                            return {
-                                color: col,
-                                weight: 3,        
-                                opacity: 0.75,    
-                                lineCap: 'round',  
-                                lineJoin: 'round'  
-                            };
+                            return { color: col, weight: 3, opacity: 0.75, lineCap: 'round', lineJoin: 'round' };
                         },
                         onEachFeature: function(feature, layer) {
                             var nomeLinea = feature.properties.routes_route_short_name || '';
                             var descLinea = feature.properties.routes_route_long_name || '';
                             layer.bindPopup(`<b>Linea ${nomeLinea}</b><br>${descLinea}`);
-
                             layer.on('click', function(e) {
                                 L.DomEvent.stopPropagation(e);
                                 selezionaLinea(nomeLinea);
@@ -266,38 +356,31 @@
                 }
 
                 metroLayer = createCategoryLayer(f => {
-                    var props = f.properties || {};
-                    var t = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
-                    var name = (props.routes_route_short_name || '').toString().toLowerCase();
+                    var t = f.properties.routes_route_type ?? f.properties.route_type;
+                    var name = (f.properties.routes_route_short_name || '').toLowerCase();
                     return parseInt(t) === 1 || name === 'm1';
                 });
 
                 tramLayer = createCategoryLayer(f => {
-                    var props = f.properties || {};
-                    var t = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
-                    var name = (props.routes_route_short_name || '').toString().toLowerCase();
+                    var t = f.properties.routes_route_type ?? f.properties.route_type;
+                    var name = (f.properties.routes_route_short_name || '').toLowerCase();
                     return parseInt(t) === 0 || ['3', '4', '7', '9', '10', '13', '15', '16', '16cs', '16cd'].includes(name);
                 });
 
-                funicolareLayer = createCategoryLayer(f => {
-                    var t = f.properties.routes_route_type !== undefined ? f.properties.routes_route_type : props.route_type;
-                    return parseInt(t) === 7;
-                });
+                funicolareLayer = createCategoryLayer(f => parseInt(f.properties.routes_route_type ?? f.properties.route_type) === 7);
 
                 busUrbLayer = createCategoryLayer(f => {
-                    var props = f.properties || {};
-                    var t = props.routes_route_type !== undefined ? props.routes_route_type : props.route_type;
-                    var agencyId = (props.routes_agency_id || props.agency_id || '').toString().toUpperCase();
-                    var name = (props.routes_route_short_name || '').toString().toLowerCase();
+                    var t = f.properties.routes_route_type ?? f.properties.route_type;
+                    var agencyId = (f.properties.routes_agency_id || f.properties.agency_id || '').toUpperCase();
+                    var name = (f.properties.routes_route_short_name || '').toLowerCase();
                     var isTram = parseInt(t) === 0 || ['3', '4', '7', '9', '10', '13', '15', '16', '16cs', '16cd'].includes(name);
                     var isMetro = parseInt(t) === 1 || name === 'm1';
                     return !isTram && !isMetro && parseInt(t) === 3 && !agencyId.includes('E');
                 });
 
                 busSubLayer = createCategoryLayer(f => {
-                    var props = f.properties || {};
-                    var agencyId = (props.routes_agency_id || props.agency_id || '').toString().toUpperCase();
-                    var name = (props.routes_route_short_name || '').toString().toLowerCase();
+                    var agencyId = (f.properties.routes_agency_id || f.properties.agency_id || '').toUpperCase();
+                    var name = (f.properties.routes_route_short_name || '').toLowerCase();
                     return agencyId.includes('E') || (!isNaN(parseInt(name)) && parseInt(name) >= 100);
                 });
 
@@ -307,92 +390,81 @@
                 busUrbLayer.addTo(map);
                 busSubLayer.addTo(map);
 
-                // Salviamo le linee indicizzate
                 searchIndexLines = Array.from(lineMap.values());
 
-                var overlays = {
+                L.control.layers(null, {
                     "🚇 Metropolitana": metroLayer,
                     "🚊 Tram": tramLayer,
                     "🚌 Bus Urbani": busUrbLayer,
                     "🚐 Bus Suburbani": busSubLayer,
                     "🚞 Funicolare": funicolareLayer
-                };
-
-                L.control.layers(null, overlays, { collapsed: true }).addTo(map);
+                }, { collapsed: true }).addTo(map);
             });
 
-        // 4. Carichiamo il file fermate.geojson
+        // Gestione Pannello Inferiore
+        function apriPannelloInferiore(nomeFermata, codicePalina) {
+            document.getElementById('panel-stop-name').textContent = nomeFermata;
+            document.getElementById('panel-stop-code').textContent = `Codice Palina: ${codicePalina}`;
+            
+            var urlLive = `https://www.gtt.to.it/cms/percorari/arrivi?option=com_gtt&view=palina&realtime=true&palina=${codicePalina}&bacino=&ora=&data=`;
+            document.getElementById('panel-gtt-link').href = urlLive;
+
+            document.getElementById('bottom-panel').classList.add('open');
+        }
+
+        function chiudiPannelloInferiore() {
+            document.getElementById('bottom-panel').classList.remove('open');
+        }
+
+        // Caricamento fermate
         fetch('fermate.geojson')
             .then(response => response.json())
             .then(data => {
                 stopsLayer = L.geoJSON(data, {
                     pane: 'paneFermate',
-                    pointToLayer: function(feature, latlng) {
-                        return L.circleMarker(latlng, {
-                            radius: 6,                
-                            fillColor: "#ffffff",      
-                            color: "#000000",          
-                            weight: 1.5,              
-                            fillOpacity: 1
-                        });
-                    },
+                    pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+                        radius: 6, fillColor: "#ffffff", color: "#000000", weight: 1.5, fillOpacity: 1
+                    }),
                     onEachFeature: function(feature, layer) {
                         var nomeFermata = feature.properties.stop_name || 'Fermata';
                         var codicePalina = feature.properties.stop_code || '';
                         var lineePassanti = feature.properties.linee || '';
                         
-                        // Salviamo nell'indice di ricerca fermate
-                        searchIndexStops.push({
-                            name: nomeFermata,
-                            code: codicePalina,
-                            latlng: layer.getLatLng(),
-                            layer: layer
-                        });
+                        searchIndexStops.push({ name: nomeFermata, code: codicePalina, latlng: layer.getLatLng(), layer: layer });
 
                         var htmlBadgeLinee = '';
                         if (lineePassanti) {
-                            var arrayLinee = lineePassanti.toString().split(',');
-                            arrayLinee.forEach(function(numLinea) {
+                            lineePassanti.toString().split(',').forEach(numLinea => {
                                 numLinea = numLinea.trim();
                                 if(numLinea) {
                                     var colBadge = getLineaColore(numLinea);
-                                    htmlBadgeLinee += `<button class="line-badge-btn" data-linea="${numLinea}" style="margin: 2px; padding: 4px 8px; background: ${colBadge}; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">${numLinea}</button>`;
+                                    htmlBadgeLinee += `<button class="line-badge-btn" data-linea="${numLinea}" style="margin: 2px; padding: 4px 8px; background: ${colBadge}; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 11px;">${numLinea}</button>`;
                                 }
                             });
                         }
 
-                        var urlLive = `https://www.gtt.to.it/cms/percorari/arrivi?option=com_gtt&view=palina&realtime=true&palina=${codicePalina}&bacino=&ora=&data=`;
-                        
                         var popupContent = `
-                            <div style="min-width: 210px; text-align: center; padding: 4px;">
-                                <b style="font-size: 14px;">${nomeFermata}</b><br>
-                                <span style="font-size: 11px; color: #666;">Palina: ${codicePalina}</span><br>
-                                
-                                ${htmlBadgeLinee ? `
-                                <div style="margin: 8px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee; padding: 6px 0;">
-                                    <div style="font-size: 11px; color: #444; margin-bottom: 4px;">Linee in transito:</div>
-                                    <div style="max-height: 80px; overflow-y: auto; display: flex; flex-wrap: wrap; justify-content: center; gap: 2px;">
-                                        ${htmlBadgeLinee}
-                                    </div>
-                                </div>` : ''}
-
-                                <div style="margin-top: 8px;">
-                                    <a href="${urlLive}" target="_blank" style="display: block; padding: 9px 12px; background: #E53935; color: #fff; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.15);">
-                                        🔴 Orari Ufficiali GTT (Fermata ${codicePalina})
-                                    </a>
-                                </div>
+                            <div style="min-width: 170px; text-align: center; padding: 4px;">
+                                <b style="font-size: 13px; color: #1e293b;">${nomeFermata}</b><br>
+                                <span style="font-size: 11px; color: #64748b;">Palina: ${codicePalina}</span>
+                                ${htmlBadgeLinee ? `<div style="margin-top: 6px; border-top: 1px solid #f1f5f9; padding-top: 6px; display: flex; flex-wrap: wrap; justify-content: center; gap: 2px;">${htmlBadgeLinee}</div>` : ''}
                             </div>
                         `;
                         layer.bindPopup(popupContent);
+
+                        layer.on('click', () => apriPannelloInferiore(nomeFermata, codicePalina));
                     }
                 });
 
-                if (map.getZoom() >= 14) {
-                    stopsLayer.addTo(map);
-                }
+                if (map.getZoom() >= 14) stopsLayer.addTo(map);
             });
 
-        // 5. LOGICA BARRA DI RICERCA INTERattiva
+        map.on('click', () => {
+            chiudiPannelloInferiore();
+            resettaMappa();
+        });
+
+        // Barra di ricerca
         var searchInput = document.getElementById('search-input');
         var searchResults = document.getElementById('search-results');
 
@@ -406,33 +478,16 @@
             }
 
             var matches = [];
-
-            // 1. Cerca tra le linee
-            searchIndexLines.forEach(function(l) {
+            searchIndexLines.forEach(l => {
                 if (l.name.toLowerCase().includes(query) || l.desc.toLowerCase().includes(query)) {
-                    matches.push({
-                        type: 'line',
-                        title: `Linea ${l.name}`,
-                        subtitle: l.desc,
-                        badge: l.name,
-                        color: l.color,
-                        data: l.name
-                    });
+                    matches.push({ type: 'line', title: `Linea ${l.name}`, subtitle: l.desc, badge: l.name, color: l.color, data: l.name });
                 }
             });
 
-            // 2. Cerca tra le fermate (massimo 10 risultati per non appesantire)
             var stopMatches = 0;
-            searchIndexStops.forEach(function(s) {
+            searchIndexStops.forEach(s => {
                 if (stopMatches < 10 && (s.name.toLowerCase().includes(query) || s.code.toLowerCase().includes(query))) {
-                    matches.push({
-                        type: 'stop',
-                        title: s.name,
-                        subtitle: `Palina ${s.code}`,
-                        badge: s.code,
-                        color: '#64748b',
-                        data: s
-                    });
+                    matches.push({ type: 'stop', title: s.name, subtitle: `Palina ${s.code}`, badge: s.code, color: '#64748b', data: s });
                     stopMatches++;
                 }
             });
@@ -442,19 +497,18 @@
                 return;
             }
 
-            // Mostriamo i risultati
-            matches.slice(0, 12).forEach(function(item) {
+            matches.slice(0, 12).forEach(item => {
                 var div = document.createElement('div');
                 div.className = 'search-item';
                 div.innerHTML = `
                     <div>
-                        <div style="font-weight: bold; color: #1e293b;">${item.title}</div>
+                        <div style="font-weight: 600; color: #1e293b;">${item.title}</div>
                         <div style="font-size: 11px; color: #64748b;">${item.subtitle}</div>
                     </div>
                     <span class="search-item-badge" style="background: ${item.color};">${item.badge}</span>
                 `;
 
-                div.onclick = function() {
+                div.onclick = () => {
                     searchResults.style.display = 'none';
                     searchInput.value = '';
 
@@ -462,61 +516,44 @@
                         selezionaLinea(item.data);
                     } else if (item.type === 'stop') {
                         var stop = item.data;
-                        // Assicuriamoci che il layer delle fermate sia visibile
-                        if (map.getZoom() < 14) {
-                            map.setView(stop.latlng, 16);
-                        } else {
-                            map.panTo(stop.latlng);
-                        }
-                        // Apriamo il popup della fermata
-                        setTimeout(function() {
-                            if (!map.hasLayer(stopsLayer)) {
-                                stopsLayer.addTo(map);
-                            }
+                        map.setView(stop.latlng, Math.max(map.getZoom(), 16));
+                        setTimeout(() => {
+                            if (!map.hasLayer(stopsLayer)) stopsLayer.addTo(map);
                             stop.layer.openPopup();
+                            apriPannelloInferiore(stop.name, stop.code);
                         }, 200);
                     }
                 };
-
                 searchResults.appendChild(div);
             });
-
             searchResults.style.display = 'block';
         });
 
-        // Chiudi i risultati di ricerca se si clicca fuori
-        document.addEventListener('click', function(e) {
-            if (!e.target.closest('.search-container')) {
+        document.addEventListener('click', e => {
+            if (!e.target.closest('.search-container') && !e.target.closest('.bottom-panel')) {
                 searchResults.style.display = 'none';
             }
         });
 
-        // Ascoltatore globale per i badge delle linee
-        map.on('popupopen', function(e) {
+        map.on('popupopen', e => {
             var container = e.popup.getElement();
             if (!container) return;
-
-            var buttons = container.querySelectorAll('.line-badge-btn');
-            buttons.forEach(function(btn) {
+            container.querySelectorAll('.line-badge-btn').forEach(btn => {
                 L.DomEvent.disableClickPropagation(btn);
-                L.DomEvent.on(btn, 'click', function(ev) {
+                L.DomEvent.on(btn, 'click', ev => {
                     L.DomEvent.stopPropagation(ev);
-                    var linea = btn.getAttribute('data-linea');
-                    selezionaLinea(linea);
+                    selezionaLinea(btn.getAttribute('data-linea'));
                 });
             });
         });
 
-        // 6. BANNER DELLA LINEA SELEZIONATA
+        // Banner linea attiva
         var ActiveLineControl = L.Control.extend({
             options: { position: 'topright' },
-            onAdd: function (map) {
+            onAdd: () => {
                 var container = L.DomUtil.create('div', 'active-line-banner');
                 container.id = 'active-line-banner-div';
-                container.innerHTML = `
-                    <span id="active-line-text">Linea X</span>
-                    <button onclick="resettaMappa()" title="Chiudi selezione">✕</button>
-                `;
+                container.innerHTML = `<span id="active-line-text">Linea X</span><button onclick="resettaMappa()" title="Chiudi">✕</button>`;
                 L.DomEvent.disableClickPropagation(container);
                 return container;
             }
@@ -526,38 +563,26 @@
         function selezionaLinea(nomeLinea) {
             lineaSelezionataAttiva = nomeLinea.toString();
             map.closePopup();
+            chiudiPannelloInferiore();
 
             var banner = document.getElementById('active-line-banner-div');
             var textSpan = document.getElementById('active-line-text');
             if (banner && textSpan) {
-                var colB = getLineaColore(nomeLinea);
-
                 textSpan.innerHTML = `Linea ${nomeLinea} selezionata`;
-                banner.style.borderLeftColor = colB;
+                banner.style.borderLeftColor = getLineaColore(nomeLinea);
                 banner.style.display = 'flex';
             }
 
-            var lineLayers = [metroLayer, tramLayer, funicolareLayer, busUrbLayer, busSubLayer];
-            lineLayers.forEach(function(catLayer) {
-                if (catLayer) {
-                    catLayer.eachLayer(function(l) {
-                        var props = l.feature.properties || {};
-                        var shortName = (props.routes_route_short_name || '').toString();
-                        
-                        if (shortName === lineaSelezionataAttiva) {
-                            l.setStyle({ opacity: 1, weight: 5 });
-                        } else {
-                            l.setStyle({ opacity: 0.15, weight: 1.5 });
-                        }
-                    });
-                }
+            [metroLayer, tramLayer, funicolareLayer, busUrbLayer, busSubLayer].forEach(cat => {
+                if (cat) cat.eachLayer(l => {
+                    var shortName = (l.feature.properties.routes_route_short_name || '').toString();
+                    l.setStyle(shortName === lineaSelezionataAttiva ? { opacity: 1, weight: 5 } : { opacity: 0.15, weight: 1.5 });
+                });
             });
 
             if (stopsLayer && map.getZoom() >= 14) {
-                stopsLayer.eachLayer(function(marker) {
-                    var lineeProps = (marker.feature.properties.linee || '').toString();
-                    var arrayLinee = lineeProps.split(',').map(s => s.trim());
-                    
+                stopsLayer.eachLayer(marker => {
+                    var arrayLinee = (marker.feature.properties.linee || '').toString().split(',').map(s => s.trim());
                     if (arrayLinee.includes(lineaSelezionataAttiva)) {
                         if (!map.hasLayer(marker)) map.addLayer(marker);
                     } else {
@@ -569,76 +594,52 @@
 
         function resettaMappa() {
             lineaSelezionataAttiva = null;
-
             var banner = document.getElementById('active-line-banner-div');
-            if (banner) {
-                banner.style.display = 'none';
-            }
+            if (banner) banner.style.display = 'none';
 
-            var lineLayers = [metroLayer, tramLayer, funicolareLayer, busUrbLayer, busSubLayer];
-            lineLayers.forEach(function(catLayer) {
-                if (catLayer) {
-                    catLayer.eachLayer(function(l) {
-                        l.setStyle({ opacity: 0.75, weight: 3 });
-                    });
-                }
+            [metroLayer, tramLayer, funicolareLayer, busUrbLayer, busSubLayer].forEach(cat => {
+                if (cat) cat.eachLayer(l => l.setStyle({ opacity: 0.75, weight: 3 }));
             });
 
             if (stopsLayer) {
                 if (map.getZoom() >= 14) {
-                    stopsLayer.eachLayer(function(marker) {
-                        if (!map.hasLayer(marker)) map.addLayer(marker);
-                    });
+                    stopsLayer.eachLayer(marker => { if (!map.hasLayer(marker)) map.addLayer(marker); });
                 } else {
                     if (map.hasLayer(stopsLayer)) map.removeLayer(stopsLayer);
                 }
             }
         }
 
-        map.on('zoomend', function() {
+        map.on('zoomend', () => {
             if (!stopsLayer) return;
-            var currentZoom = map.getZoom();
-            
-            if (currentZoom >= 14) {
+            if (map.getZoom() >= 14) {
                 if (!map.hasLayer(stopsLayer)) {
                     if (lineaSelezionataAttiva) {
-                        stopsLayer.eachLayer(function(marker) {
-                            var lineeProps = (marker.feature.properties.linee || '').toString();
-                            var arrayLinee = lineeProps.split(',').map(s => s.trim());
-                            if (arrayLinee.includes(lineaSelezionataAttiva)) {
-                                marker.addTo(map);
-                            }
+                        stopsLayer.eachLayer(marker => {
+                            var arrayLinee = (marker.feature.properties.linee || '').toString().split(',').map(s => s.trim());
+                            if (arrayLinee.includes(lineaSelezionataAttiva)) marker.addTo(map);
                         });
                     } else {
-                        map.addLayer(stopsLayer);
+                        stopsLayer.addTo(map);
                     }
                 }
             } else {
                 if (map.hasLayer(stopsLayer)) map.removeLayer(stopsLayer);
-                stopsLayer.eachLayer(function(marker) {
-                    if (map.hasLayer(marker)) map.removeLayer(marker);
-                });
+                stopsLayer.eachLayer(marker => { if (map.hasLayer(marker)) map.removeLayer(marker); });
             }
         });
 
-        // 6. PULSANTE RESET (Top Left)
+        // Pulsante Reset
         var ResetControl = L.Control.extend({
             options: { position: 'topleft' },
-            onAdd: function (map) {
+            onAdd: () => {
                 var container = L.DomUtil.create('div', 'leaflet-bar');
-                container.innerHTML = '<a class="reset-button" href="#" title="Ripristina visualizzazione">⟲</a>';
-                container.onclick = function(e) {
-                    e.preventDefault();
-                    resettaMappa();
-                };
+                container.innerHTML = '<a class="reset-button" href="#" title="Ripristina">⟲</a>';
+                container.onclick = e => { e.preventDefault(); chiudiPannelloInferiore(); resettaMappa(); };
                 return container;
             }
         });
         map.addControl(new ResetControl());
-
-        map.on('click', function(e) {
-            resettaMappa();
-        });
     </script>
 </body>
 </html>
